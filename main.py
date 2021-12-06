@@ -26,12 +26,11 @@ def on_message(ws, msg):
 
     trend = coin_distribution()
     print(trend)
+    with open("Trend.txt", "r+") as f:
+        f.write(str(trend) + "\n")
 
 def coin_distribution():
-    global disribution
-
     with open("coin_list.txt", "r+") as f:
-        distribution = 0
         points = 0
         for line in f:
             symbol = line.strip()
@@ -312,7 +311,7 @@ def on_error(ws, error):
     print(error)
 
 coins_checking()
-
+"""
 with open("coin_list.txt", "r+") as f:
     zeile = 0
     print("start")
@@ -334,7 +333,7 @@ with open("coin_list.txt", "r+") as f:
         elif macd_func() and ema_func() and sar_func():
             banned_coins.append(symbol)
 print(f"banned_coins: {banned_coins}")
-
+"""
 send_message("© Written by Timo Perzi and Christoph Handschuh,\n on 30-11-2021")
 send_message("Bot started! /start")
 ws = websocket.WebSocketApp("wss://stream.binance.com:9443/ws/" + symbol.lower() + "@kline_3m", on_open=on_open, on_close=on_close, on_message=on_message, on_error=on_error)

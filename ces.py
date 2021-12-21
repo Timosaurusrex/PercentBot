@@ -85,7 +85,6 @@ def sell_all(symbol):
     f.close()
     return 200
 
-
 def Quantity(symbol, mtg):
     symbolprice = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + symbol.upper())
     symbolprice = json.loads(symbolprice.text)
@@ -96,3 +95,8 @@ def Quantity(symbol, mtg):
     money = money/mtg
     #print(money/(symbolprice * 1.05))
     return (money * 0.99)/symbolprice
+
+def current_price(symbol):
+    symbolprice = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + symbol.upper())
+    symbolprice = json.loads(symbolprice.text)
+    return float(symbolprice["price"])

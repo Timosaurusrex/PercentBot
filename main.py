@@ -1,80 +1,22 @@
-print("writen by Handschuh Christoph and Timo Perzi <3")
-
-import websocket
 import requests
+import websocket
 import sys
 from ces import *
+from multiprocessing import *
 from binance.client import Client
 from telegram import *
+import time
+print("writen by Handschuh Christoph and Timo Perzi <3")
 
-symbol = ""
-bricks = ""
-last_message = ""
-last_date = ""
-sar = 0
-run = True
+mtg = 2
 
 trades = []
 trades_price = []
-trades_price2 = []
-banned_coins = []
+last_price = []
 
-client = Client(api_key="", api_secret="")
+def restore_last_trades():
+    global mtg, trades, trades_price, last_price
 
-def on_message(ws, msg):
-    #global
-
-    trend = coin_distribution()
-    print(trend)
-    with open("Trend.txt", "r+") as f:
-        f.write(str(trend) + "\n")
-
-def coin_distribution():
-    with open("coin_list.txt", "r+") as f:
-        points = 0
-        for line in f:
-            symbol = line.strip()
-            brick = requests.get('https://api.binance.com/api/v1/klines?symbol=' + symbol.upper() + '&interval=5m')  # Todo: Timeframe Limit
-            bricks = brick.json()
-            percent = (float(bricks[499][4]) * 100) / float(bricks[211][4]) - 100
-
-            if percent >= 10:
-                points = points + 6
-                print(symbol.upper())
-            elif percent < 10 and percent >= 7:
-                points = points + 4
-            elif percent < 7 and percent >= 5:
-                points = points + 3
-            elif percent < 5 and percent >= 3:
-                points = points + 2
-            elif percent < 3 and percent > 0:
-                points = points + 1
-            elif percent < 0 and percent >= -3:
-                points = points - 1
-            elif percent < -3 and percent >= -5:
-                points = points - 2
-            elif percent < -5 and percent >= -7:
-                points = points - 4
-            elif percent < -7 and percent > -10:
-                points = points - 8
-            elif percent <= -10 and percent > -30:
-                points = points - 16
-            elif percent <= -30:
-                points = points - 25
-
-    if points <= 100 and points >= -100:
-        return 0
-    elif points <= 600 and points > 100:
-        return 1
-    elif points > 600:
-        return 2
-    elif points < -100 and points >= -700:
-        return -1
-    elif points > -700:
-        return -2
-
-def coins_checking():
-    global mtg, trades, trades_price, trades_price2
     with open("bought_coins.txt", "r+") as f:
         i = -1
         j = 0
@@ -83,7 +25,7 @@ def coins_checking():
             if i == -1:
                 mtg = float(line)  # mtg
             elif i == 0:
-                trades.append(line)   # symbol
+                trades.append(line.lower())  # symbol
             elif i == 1:
                 with open("coins/" + trades[j].upper() + ".txt", "w") as d:  # Coin holding
                     d.write(line)
@@ -92,21 +34,153 @@ def coins_checking():
                 trades_price.append(float(line))  # sell price -
                 print(trades_price)
             elif i == 3:
-                trades_price2.append(float(line))  # sell price +
-                print(trades_price2)
+                last_price.append(float(line))  # sell price +
+                print(last_price)
             i += 1
             if i == 4:
                 i = 0
 
+def save_trades():
+    global trades_price, last_price, trades, mtg
+
+    with open("bought_coins.txt", "r+") as f:
+        f.truncate()
+        f.write(str(mtg) + "\n")  #mtg
+        i = len(trades)-1
+        while i >= 0:
+            f.write(trades[i].upper() + "\n") #symbol
+            with open("coins/" + trades[i].upper() + ".txt", "r+") as d: #Coin holding
+                f.write(d.read() + "\n")
+            f.write(str(trades_price[i]) + "\n")  #sell price +
+            f.write(str(last_price[i]) + "\n")  # sell price -
+            i -= 1
+
+def buy_():
+    global trades, trades_price, mtg, last_price
+
+    if len(trades) < mtg:
+        with open("coin_list.txt") as f:
+            for line in f:
+                sell()
+                symbol = line.strip()
+                bricks = requests.get('https://api.binance.com/api/v1/klines?symbol=' + symbol.upper() + '&interval=1m').json()
+
+                up = 0
+                down = 0
+                i = 480
+                red = False
+                posi = False
+
+                while i != len(bricks):
+
+                    diff = float(bricks[i][4]) - float(bricks[i][1])
+
+                    if diff < 0:
+                        down = down - ((float(bricks[i][4]) * 100) / float(bricks[i][1]) - 100)
+                        red = True
+
+                    elif diff >= 0:
+                        up = up + ((float(bricks[i][4]) * 100) / float(bricks[i][1]) - 100)
+                        red = False
+
+                    if up >= 5 and down >= -1.4 and red == False and down != 0 and i == 499:
+                        for coin in trades:
+                            if symbol.upper() == coin.upper():
+                                posi = True
+                        if posi == False:
+                            print("buy")
+                            buy(symbol=symbol, quantity=float(Quantity(symbol, mtg)))
+                            trades.append(symbol.upper())
+                            trades_price.append(current_price(symbol))
+                            last_price.append(current_price(symbol) * -1)
+                            save_trades()
+                            with open("history.txt", "a") as f:
+                                f.write(f"Buy - {symbol.upper()}: {'{:5.4f}'.format(current_price(symbol))}\n")
+
+                    if red == False:
+                        down = 0
+                    elif red and up < 5:
+                        up = 0
+                    i += 1
+
+def sell():
+    global trades, trades_price, last_price
+
+    i = len(trades) - 1
+    while i >= 0:
+        price = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + trades[i].upper()).json()
+        price = float(price['price'])
+
+        if float(price) > float(last_price[i]):
+            last_price[i] = price
+
+        if float(price) < (float(trades_price[i]) * 0.99) or float(price) < (float(last_price[i]) * 0.995):
+            print("sell")
+            sell_all(trades[i])
+            save_trades()
+            with open("history.txt", "a") as f:
+                f.write("Sell - " + trades[i] + "  " + '{:5.4f}'.format(price) + "\n")
+
+            trades.pop(i)
+            trades_price.pop(i)
+            last_price.pop(i)
+            save_trades()
+            i = len(trades)
+        i -= 1
+
+if __name__ == '__main__':
+
+    with open("coin_list.txt", "r+") as f:
+        for line in f:
+            symbol = line.strip().lower()
+
+            with open("coins/" + symbol.upper() + ".txt", "w") as d:
+                d.write(str(0))
+
+    restore_last_trades()
+
+    while True:
+        start = time.time()
+
+        buy_()
+
+        print('{:5.3f}s'.format(time.time() - start))
+
+
+
+
+
+
+
+
+"""
+symbol = ""
+bricks = ""
+last_message = ""
+last_date = ""
+sar = 0
+run = True
+mtg = 5
+
+trades = []
+trades_price = []
+trades_price2 = []
+banned_coins = []
+
+client = Client(api_key="", api_secret="")
+
+
+
 def ema_func():
     global bricks
     ema = 0
-    for i in range(len(bricks) - 200, len(bricks)):
+    for i in range(len(bricks) - 399, len(bricks) - 199):
         ema = float(bricks[i][4]) + ema
     ema = ema / 200
 
-    for i in range(len(bricks) - 200, len(bricks)):
+    for i in range(len(bricks) - 199, len(bricks)):
         ema = (float(bricks[i][4]) * (2 / 201)) + (ema * (1 - (2 / 201)))
+    print(ema)
     if float(bricks[len(bricks) - 1][4]) > ema:
         return True
     else:
@@ -116,21 +190,21 @@ def macd_func():
     global bricks
     ema_fast = 0
     ema_slow = 0
-    for i in range(len(bricks) - 9, len(bricks)):
+    for i in range(len(bricks) - 23, len(bricks) - 11):
         ema_fast = float(bricks[i][4]) + ema_fast
-    ema_fast = ema_fast / 9
+    ema_fast = ema_fast / 12
 
-    for i in range(len(bricks) - 26, len(bricks)):
+    for i in range(len(bricks) - 51, len(bricks) - 25):
         ema_slow = float(bricks[i][4]) + ema_slow
     ema_slow = ema_slow / 26
 
-    for i in range(len(bricks) - 12, len(bricks)):
+    for i in range(len(bricks) - 11, len(bricks)):
         ema_fast = (float(bricks[i][4]) * (2 / 13)) + (ema_fast * (1 - (2 / 13)))
 
-    for i in range(len(bricks) - 26, len(bricks)):
+    for i in range(len(bricks) - 25, len(bricks)):
         ema_slow = (float(bricks[i][4]) * (2 / 27)) + (ema_slow * (1 - (2 / 27)))
 
-    if ema_fast > ema_slow:
+    if ema_fast - ema_fast/200 > ema_slow:
         return True
     else:
         return False
@@ -174,6 +248,38 @@ def sar_func():
 
     return sar_bool
 
+def linear_regression():
+    global bricks
+
+    length = 10
+
+    x = numpy.array([])
+    for i in range(0, length):
+        x = numpy.append(x, i)
+
+    y = numpy.array([])
+    for i in range(len(bricks) - 1 - length, len(bricks) - 1):
+        y = numpy.append(y, float(bricks[i][3]))
+
+    # number of observations/points
+    n = np.size(x)
+
+    # mean of x and y vector
+    m_x = np.mean(x)
+    m_y = np.mean(y)
+
+    # calculating cross-deviation and deviation about x
+    SS_xy = np.sum(y * x) - n * m_y * m_x
+    SS_xx = np.sum(x * x) - n * m_x * m_x
+
+    # calculating regression coefficients
+    b_1 = SS_xy / SS_xx
+
+    if b_1 > 0:
+        return True
+    else:
+        return False
+
 def remove_line(fileName, lineToSkip): #Removes a given line from a file
     with open(fileName, 'r') as read_file:
         lines = read_file.readlines()
@@ -187,38 +293,17 @@ def remove_line(fileName, lineToSkip): #Removes a given line from a file
                 write_file.write(line)
             currentLine += 1
 
-def save_trades():
-    global trades_price, trades_price2, trades, mtg
-
-    with open("bought_coins.txt", "r+") as f:
-        f.write(str(mtg) + "\n")  #mtg
-        i = len(trades)-1
-        while i >= 0:
-            f.write(trades[i].lower() + "\n") #symbol
-            with open("coins/" + trades[i].upper() + ".txt", "r+") as d: #Coin holding
-                f.write(d.read() + "\n")
-            f.write(str(trades_price[i]) + "\n")  #sell price +
-            f.write(str(trades_price2[i]) + "\n")  # sell price -
-            i -= 1
-"""
 def telegram():
-    global last_message, last_date, run, mtg
-    message = check_for_message()
-    message = message.lower()
+    global last_message, last_date, mtg, run
+    message = check_for_message().lower()
     date = check_for_message_date()
 
     if date != last_date:
         print(message)
+
         if message == "/end":
             send_message("Beendet")
             last_message = ""
-
-        elif message == "help" or message == "/help":
-            print("help")
-            send_message("Start - /start\nStop - /stop\nMoney - /wallet\nHistory - /history\nSettings - /settings\nNew Coin - /change_coin\nNew Coin later- /change_coin_later\nNew calculate Quantity - /calculate_quantity\nrestart functions - /functions")
-        elif message == "/functions":
-            print("secret functions")
-            send_message("restart OrderHistory - /restart_history\nrestart money - /restart_everything")
 
         elif message == "stop" or message == "/stop":
             print("stop")
@@ -237,41 +322,13 @@ def telegram():
             run = True
             last_message = message
 
-        elif message == "settings" or message == "/settings":
-            with open("bought_coins.txt", "r+") as f:
-                send_message(f"Setting:\n{f.read()}\nSettings ändern sie?    /end")
-            last_message = message
-            print("settings")
-        elif last_message == "/settings" or last_message == "settings" and message != "/end" and message != "/wallet" and message != "/help":
-            with open("bought_coins.txt", 'r+') as f:
-                f.write(message)
-            coins_checking()
-            last_message = ""
-            send_message("Settings changed!")
+        elif message == "help" or message == "/help":
+            print("help")
+            send_message("Start - /start\nStop - /stop\nMoney - /wallet\nHistory - /history\nSettings - /settings")
 
-        elif message == "restart history" or message == "/restart_history":
-            print("restart history")
-            with open("history.txt", 'r+') as f:
-                f.truncate(0)
-            last_message = ""
-            send_message("!Finished!")
-
-        elif message == "restart everything" or message == "/restart_everything":
-            send_message(f"How much money do you want?    /end")
-            last_message = message
-            print("restart money")
-        elif last_message == "restart everything" or last_message == "/restart_everything" and message != "/end":
-            with open("coin_list.txt", "r+") as f:
-                for line in f:
-                    with open("coins/" + line.strip().upper() + ".txt", "w") as d:
-                        d.write(str(0))
-            with open("bought_coins.txt.txt", "r+") as f:
-                f.truncate(mtg)
-            f = open("USDT.txt", "w")
-            f.write(message)
-            f.close()
-            last_message = ""
-            send_message("!Finished!")
+        elif message == "/settings" or message == "settings":
+            with open("bought_coins.txt", "r") as f:
+                send_message(f.read())
 
         elif message == "/wallet" or message == "wallet":
             with open("USDT.txt", "r") as f:
@@ -298,116 +355,124 @@ def telegram():
             last_message = message
             sys.exit(0)
         last_date = date
-"""
-def on_open(ws):
-    print('opened connection')
 
-def on_close(ws ,a ,b):
-    print('closed connection')
-    ws = websocket.WebSocketApp("wss://stream.binance.com:9443/ws/" + symbol.lower() + "@kline_3m", on_open=on_open, on_close=on_close, on_message=on_message, on_error=on_error)
-    ws.run_forever()
+def coin_sell():
+    global trades, trades_price, trades_price2, banned_coins
 
-def on_error(ws, error):
-    print(error)
-
-coins_checking()
-"""
-with open("coin_list.txt", "r+") as f:
-    zeile = 0
-    print("start")
-    for line in f:
-        symbol = line.strip()
-        zeile += 1
-        with open("coins/" + symbol.upper() + ".txt", "w") as d:
-            d.write(str(0))
-        try:
-            brick = requests.get('https://api.binance.com/api/v1/klines?symbol=' + symbol.upper() + '&interval=30m')  # Todo: Timeframe Limit
-            bricks = brick.json()
-        except requests.exceptions.RequestException as e:
-            print("Error: /n ", e)
-
-        if "Invalid symbol" in brick.text:
-            print("removed invalid symbol: ", symbol.upper())
-            remove_line("coin_list.txt", zeile)
-
-        elif macd_func() and ema_func() and sar_func():
-            banned_coins.append(symbol)
-print(f"banned_coins: {banned_coins}")
-"""
-send_message("© Written by Timo Perzi and Christoph Handschuh,\n on 30-11-2021")
-send_message("Bot started! /start")
-ws = websocket.WebSocketApp("wss://stream.binance.com:9443/ws/" + symbol.lower() + "@kline_3m", on_open=on_open, on_close=on_close, on_message=on_message, on_error=on_error)
-ws.run_forever()
-
-
-
-"""
-while True:
-
-    telegram()
-
-    if len(trades) < mtg:
-        with open("coin_list.txt") as f:
-            for line in f:
-                contains = True
-                reason = False
-                symbol = line.strip()
-                bricks = requests.get('https://api.binance.com/api/v1/klines?symbol=' + symbol.upper() + '&interval=30m').json()  # Todo: Timeframe Limit
-
-                if len(trades) < mtg and macd_func() and ema_func() and sar_func():
-                    for coin in banned_coins:
-                        if coin == symbol:
-                            reason = True
-
-                    if reason == False:
-                        contains = False
-                        for i in trades:
-                            if i.lower() == symbol.lower():
-                                contains = True
-                else:
-                    for coin in banned_coins:
-                        if coin == symbol:
-                            banned_coins.remove(symbol)
-
-                if contains == False:
-                    trades.append(symbol)
-                    print(trades)
-                    trades_price.append(sar)
-                    trades_price2.append((float(bricks[len(bricks) - 1][4]) - sar) + float(bricks[len(bricks) - 1][4]))
-                    buy(symbol, Quantity(symbol, mtg))
-                    f = open("history.txt", "a")
-                    f.write("Buy - " + symbol + "  " + bricks[len(bricks) - 1][4] + " - " + str(sar) + " - " + str((float(bricks[len(bricks) - 1][4]) - sar) + float(bricks[len(bricks) - 1][4])) + "\n")
-                    f.close()
-                    print(symbol, "bought, Sellprice = ", str(sar), str((float(bricks[len(bricks) - 1][4]) - sar) + float(bricks[len(bricks) - 1][4])))
-                    save_trades()
-
+    print("sell")
     i = len(trades) - 1
     while i >= 0:
         price = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + trades[i].upper()).json()
         price = float(price['price'])
         print(trades[i], price)
-
         if float(price) < float(trades_price[i]) or float(price) > float(trades_price2[i]):
             sell_all(trades[i])
-            f = open("history.txt", "a")
-            f.write("Sell - " + trades[i] + "  " + str(price) + "\n")
-            f.close()
-            banned_coins.append(symbol)
+            print(2)
+            with open("history.txt", "a") as f:
+                f.write("Sell - " + trades[i] + "  " + '{:5.4f}'.format(price) + "\n")
+
+            banned_coins.append(symbol.upper())
+            print(1)
             print(trades[i], "Sold")
             trades.pop(i)
             trades_price.pop(i)
             trades_price2.pop(i)
-            i -= 1
-            f = open("USDT.txt", "r")
-            current_value = float(f.read())
-            f.close()
+            print(3)
+
             save_trades()
-            for j in trades:
-                symbolprice = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + j.upper()).json()
-                symbolprice = float(symbolprice["price"])
-                f = open("coins/" + j.upper() + ".txt", 'r')
-                current_value = current_value + (float(f.read()) * float(symbolprice))
-                f.close()
-            x = requests.post("https://tradingbot.111mb.de//data_ins_christoph.php", data={'key': 'ae9w47', 'value': str(current_value)})
+            i = len(trades)
         i -= 1
+
+def coin_buy():
+    global trades, trades_price, trades_price2, banned_coins, bricks, mtg
+
+    print("buy")
+    if len(trades) < mtg:
+        with open("coin_list.txt") as f:
+            for line in f:
+                symbol = line.strip()
+                contains = True
+                reason = False
+                bricks = requests.get('https://api.binance.com/api/v1/klines?symbol=' + symbol.upper() + '&interval=30m').json()  # Todo: Timeframe Limit
+
+                if len(trades) < mtg and linear_regression() and sar_func() and macd_func():
+                    for coin in banned_coins:
+                        if coin.upper() == symbol.upper():
+                            reason = True
+
+                    if reason == False:
+                        contains = False
+                        for i in trades:
+                            if i.upper() == symbol.upper():
+                                contains = True
+                else:
+                    for coin in banned_coins:
+                        if coin.upper() == symbol.upper():
+                            banned_coins.remove(symbol.upper())
+
+                if contains == False:
+                    if sar == 0:
+                        banned_coins.append(symbol.upper())
+                    else:
+                        trades.append(symbol.upper())
+                        print(trades)
+                        trades_price.append(sar)
+                        trades_price2.append((float(bricks[len(bricks) - 1][4]) - sar) + float(bricks[len(bricks) - 1][4]))
+                        buy(symbol, Quantity(symbol, mtg))
+                        f = open("history.txt", "a")
+                        f.write("Buy - " + symbol + "  " + '{:5.4f}'.format(bricks[len(bricks) - 1][4]) + " - " + '{:5.4f}'.format(sar) + " - " + '{:5.4f}'.format((float(bricks[len(bricks) - 1][4]) - sar) + float(bricks[len(bricks) - 1][4])) + "\n")
+                        f.close()
+                        print(symbol, "bought, Sellprice = ", str(sar), str((float(bricks[len(bricks) - 1][4]) - sar) + float(bricks[len(bricks) - 1][4])))
+                        save_trades()
+
+if __name__ == '__main__':
+
+    with open("history.txt", "a") as f:
+        f.write(str(time.time()) + "\n")
+        print("writen by Handschuh Christoph and Timo Perzi <3")
+
+    with open("coin_list.txt", "r+") as f:
+        zeile = 0
+        for line in f:
+            symbol = line.strip().lower()
+            zeile += 1
+            with open("coins/" + symbol.upper() + ".txt", "w") as d:
+                d.write(str(0))
+            try:
+                brick = requests.get('https://api.binance.com/api/v1/klines?symbol=' + symbol.upper() + '&interval=30m')  # Todo: Timeframe Limit
+                bricks = brick.json()
+            except requests.exceptions.RequestException as e:
+                print("Error: /n ", e)
+
+            if "Invalid symbol" in brick.text:
+                print("removed invalid symbol: ", symbol.upper())
+                remove_line("coin_list.txt", zeile)
+
+            elif macd_func() and linear_regression() and sar_func():
+                banned_coins.append(symbol.upper())
+    print(f"banned_coins: {banned_coins}")
+
+    restore_last_trades()
+
+    while True:
+        start = time.time()
+
+        telegram()
+
+        if run:
+            if mtg == len(trades):
+                with open("coin_list.txt", "r+") as f:
+                    x = 0
+                    for line in f:
+                        symbol = line.strip().lower()
+
+                        if macd_func() and linear_regression() and sar_func():
+                            banned_coins.append(symbol.upper())
+                print(f"banned_coins: {banned_coins}")
+            else:
+                coin_buy()
+            coin_sell()
+
+        ende = time.time()
+        print('{:5.3f}s'.format(ende - start))
 """

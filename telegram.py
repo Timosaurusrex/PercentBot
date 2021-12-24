@@ -1,7 +1,7 @@
 import requests
 import json
 
-key = "bot2132832222:AAFvYlCTi55lsTG_clJs1zwnlX_2kjjsat0"
+key = "bot2106359874:AAH-Sy4RJHAcd6HB7MOFJscnvoYUzfMT28g"
 const_chat_id = "1057027063"
 
 def send_message(message, chat_id = const_chat_id):

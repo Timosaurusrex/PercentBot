@@ -9,10 +9,58 @@ import time
 print("writen by Handschuh Christoph and Timo Perzi <3")
 
 mtg = 2
+last_message = ""
+last_date = 0
 
 trades = []
 trades_price = []
 last_price = []
+
+def telegram():
+    global last_message, last_date, mtg
+    message = check_for_message().lower()
+    date = check_for_message_date()
+
+    if date != last_date:
+        print(message)
+
+        if message == "/end":
+            send_message("Beendet")
+            last_message = ""
+
+        elif message == "help" or message == "/help":
+            print("help")
+            send_message("Start - /start\nStop - /stop\nMoney - /wallet\nHistory - /history\nSettings - /settings")
+
+        elif message == "/settings" or message == "settings":
+            with open("bought_coins.txt", "r") as f:
+                send_message(f.read())
+
+        elif message == "/wallet" or message == "wallet":
+            with open("USDT.txt", "r") as f:
+                geld = float(f.read())
+            current_value = 0
+            i = len(trades) - 1
+            while i >= 0:
+                price = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + trades[i].upper()).json()
+                price = float(price['price'])
+                print(price)
+                with open("coins/" + trades[i].upper() + ".txt", 'r') as f:
+                    current_value = current_value + (float(f.read()) * price)
+                i -= 1
+            send_message(f"USD: {str(geld)}\nCoins: {mtg}\nCurrent Value: {str(current_value + geld)}")
+            last_message = ""
+
+        elif message == "/history" or message == "history":
+            f = open("history.txt", "r")
+            send_message(str(f.read()))
+            f.close()
+
+        elif message == "//kill":
+            send_message("Good buy Motherfucker <3")
+            last_message = message
+            sys.exit(0)
+        last_date = date
 
 def restore_last_trades():
     global mtg, trades, trades_price, last_price
@@ -109,7 +157,7 @@ def buy_():
 
 def sell():
     global trades, trades_price, last_price
-
+    print("yolo")
     i = len(trades) - 1
     while i >= 0:
         price = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=' + trades[i].upper()).json()
@@ -144,8 +192,9 @@ if __name__ == '__main__':
     restore_last_trades()
 
     while True:
-        start = time.time()
+        #start = time.time()
 
         buy_()
+        telegram()
 
-        print('{:5.3f}s'.format(time.time() - start))
+        #print('{:5.3f}s'.format(time.time() - start))
